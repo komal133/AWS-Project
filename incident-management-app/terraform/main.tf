@@ -145,10 +145,10 @@ resource "aws_lb" "this" {
 }
 
 resource "aws_lb_target_group" "this" {
-  name     = "${var.instance_name}-tg"
-  port     = 8000
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.this.id
+  name        = "${var.instance_name}-tg"
+  port        = 8000
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.this.id
   target_type = "instance"
 
   health_check {
@@ -198,13 +198,13 @@ resource "aws_launch_template" "app" {
 }
 
 resource "aws_autoscaling_group" "this" {
-  name                = "${var.instance_name}-asg"
-  desired_capacity    = 2
-  min_size            = 1
-  max_size            = 3
-  vpc_zone_identifier = [aws_subnet.public_a.id, aws_subnet.public_b.id]
-  target_group_arns   = [aws_lb_target_group.this.arn]
-  health_check_type   = "ELB"
+  name                      = "${var.instance_name}-asg"
+  desired_capacity          = 2
+  min_size                  = 1
+  max_size                  = 3
+  vpc_zone_identifier       = [aws_subnet.public_a.id, aws_subnet.public_b.id]
+  target_group_arns         = [aws_lb_target_group.this.arn]
+  health_check_type         = "ELB"
   health_check_grace_period = 300
 
   launch_template {
