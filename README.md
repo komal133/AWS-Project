@@ -14,20 +14,6 @@ This project contains:
 - <img width="1900" height="952" alt="image" src="https://github.com/user-attachments/assets/a347b063-4cb0-4ac8-9057-d74d34e86eaa" />
 
 
-## 2. Architecture
-
-```mermaid
-flowchart LR
-    User[Client Browser] --> ALB[Application Load Balancer]
-    ALB --> TG[Target Group]
-    TG --> EC1[EC2 Instance 1]
-    TG --> EC2[EC2 Instance 2]
-    EC1 --> Gunicorn[Gunicorn]
-    EC2 --> Gunicorn
-    Gunicorn --> Flask[Flask App]
-    Flask --> Health[/health endpoint/]
-    Flask --> UI[/Incident Dashboard/]
-```
 
 ## 2. Architecture Diagram
 
