@@ -17,8 +17,9 @@ variable "instance_name" {
 }
 
 variable "key_name" {
-  description = "Existing EC2 key pair name"
+  description = "Existing EC2 key pair name (optional)"
   type        = string
+  default     = ""
 }
 
 variable "allowed_cidr" {

@@ -180,7 +180,7 @@ resource "aws_launch_template" "app" {
   name_prefix   = "${var.instance_name}-lt-"
   image_id      = data.aws_ami.ubuntu.id
   instance_type = var.instance_type
-  key_name      = var.key_name
+  key_name      = var.key_name != "" ? var.key_name : null
 
   vpc_security_group_ids = [aws_security_group.app_sg.id]
 
