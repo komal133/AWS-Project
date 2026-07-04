@@ -22,22 +22,79 @@ data "aws_ami" "ubuntu" {
   }
 }
 
-resource "aws_security_group" "app_sg" {
-  name        = "${var.instance_name}-sg"
-  description = "Allow SSH and HTTP access"
+resource "aws_vpc" "this" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_support   = true
+  enable_dns_hostnames = true
 
-  ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = [var.allowed_cidr]
+  tags = {
+    Name = "${var.instance_name}-vpc"
   }
+}
+
+resource "aws_internet_gateway" "this" {
+  vpc_id = aws_vpc.this.id
+
+  tags = {
+    Name = "${var.instance_name}-igw"
+  }
+}
+
+resource "aws_subnet" "public_a" {
+  vpc_id                  = aws_vpc.this.id
+  cidr_block              = "10.0.1.0/24"
+  availability_zone       = "${var.aws_region}a"
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name = "${var.instance_name}-public-a"
+  }
+}
+
+resource "aws_subnet" "public_b" {
+  vpc_id                  = aws_vpc.this.id
+  cidr_block              = "10.0.2.0/24"
+  availability_zone       = "${var.aws_region}b"
+  map_public_ip_on_launch = true
+
+  tags = {
+    Name = "${var.instance_name}-public-b"
+  }
+}
+
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.this.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.this.id
+  }
+
+  tags = {
+    Name = "${var.instance_name}-public-rt"
+  }
+}
+
+resource "aws_route_table_association" "a" {
+  subnet_id      = aws_subnet.public_a.id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_route_table_association" "b" {
+  subnet_id      = aws_subnet.public_b.id
+  route_table_id = aws_route_table.public.id
+}
+
+resource "aws_security_group" "alb_sg" {
+  name        = "${var.instance_name}-alb-sg"
+  description = "Allow HTTP/HTTPS from the internet"
+  vpc_id      = aws_vpc.this.id
 
   ingress {
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
-    cidr_blocks = [var.allowed_cidr]
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
   egress {
@@ -48,64 +105,116 @@ resource "aws_security_group" "app_sg" {
   }
 }
 
-resource "aws_instance" "app" {
-  ami                         = data.aws_ami.ubuntu.id
-  instance_type               = var.instance_type
-  key_name                    = var.key_name
-  associate_public_ip_address = true
-  vpc_security_group_ids      = [aws_security_group.app_sg.id]
+resource "aws_security_group" "app_sg" {
+  name        = "${var.instance_name}-app-sg"
+  description = "Allow SSH and app traffic"
+  vpc_id      = aws_vpc.this.id
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = [var.allowed_cidr]
+  }
+
+  ingress {
+    from_port       = 8000
+    to_port         = 8000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb_sg.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+}
+
+resource "aws_lb" "this" {
+  name               = "${var.instance_name}-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb_sg.id]
+  subnets            = [aws_subnet.public_a.id, aws_subnet.public_b.id]
 
   tags = {
-    Name = var.instance_name
+    Name = "${var.instance_name}-alb"
+  }
+}
+
+resource "aws_lb_target_group" "this" {
+  name     = "${var.instance_name}-tg"
+  port     = 8000
+  protocol = "HTTP"
+  vpc_id   = aws_vpc.this.id
+  target_type = "instance"
+
+  health_check {
+    path                = "/health"
+    interval            = 30
+    timeout             = 5
+    healthy_threshold   = 2
+    unhealthy_threshold = 2
+    matcher             = "200"
   }
 
-  user_data = <<-EOF
-    #!/bin/bash
-    set -e
-    apt-get update
-    apt-get install -y python3-pip python3-venv nginx
-    mkdir -p /home/ubuntu/incident-management-app
-    chown -R ubuntu:ubuntu /home/ubuntu/incident-management-app
-  EOF
+  tags = {
+    Name = "${var.instance_name}-tg"
+  }
+}
 
-  provisioner "file" {
-    source      = "${path.module}/../app.py"
-    destination = "/home/ubuntu/incident-management-app/app.py"
+resource "aws_lb_listener" "http" {
+  load_balancer_arn = aws_lb.this.arn
+  port              = 80
+  protocol          = "HTTP"
 
-    connection {
-      type        = "ssh"
-      host        = self.public_ip
-      user        = "ubuntu"
-      private_key = file(var.private_key_path)
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.this.arn
+  }
+}
+
+resource "aws_launch_template" "app" {
+  name_prefix   = "${var.instance_name}-lt-"
+  image_id      = data.aws_ami.ubuntu.id
+  instance_type = var.instance_type
+  key_name      = var.key_name
+
+  vpc_security_group_ids = [aws_security_group.app_sg.id]
+
+  user_data = base64encode(templatefile("${path.module}/user-data.sh.tftpl", {
+    repo_url = var.repo_url
+  }))
+
+  tag_specifications {
+    resource_type = "instance"
+
+    tags = {
+      Name = var.instance_name
     }
   }
+}
 
-  provisioner "file" {
-    source      = "${path.module}/../requirements.txt"
-    destination = "/home/ubuntu/incident-management-app/requirements.txt"
+resource "aws_autoscaling_group" "this" {
+  name                = "${var.instance_name}-asg"
+  desired_capacity    = 2
+  min_size            = 1
+  max_size            = 3
+  vpc_zone_identifier = [aws_subnet.public_a.id, aws_subnet.public_b.id]
+  target_group_arns   = [aws_lb_target_group.this.arn]
+  health_check_type   = "ELB"
+  health_check_grace_period = 300
 
-    connection {
-      type        = "ssh"
-      host        = self.public_ip
-      user        = "ubuntu"
-      private_key = file(var.private_key_path)
-    }
+  launch_template {
+    id      = aws_launch_template.app.id
+    version = "$Latest"
   }
 
-  provisioner "remote-exec" {
-    inline = [
-      "cd /home/ubuntu/incident-management-app",
-      "python3 -m venv venv",
-      "source venv/bin/activate",
-      "pip install -r requirements.txt",
-      "sudo tee /etc/systemd/system/incident-app.service >/dev/null <<'EOF_SERVICE'\n[Unit]\nDescription=Incident Management Flask App\nAfter=network.target\n\n[Service]\nUser=ubuntu\nGroup=www-data\nWorkingDirectory=/home/ubuntu/incident-management-app\nEnvironment=\"PATH=/home/ubuntu/incident-management-app/venv/bin\"\nExecStart=/home/ubuntu/incident-management-app/venv/bin/gunicorn --workers 2 --bind 127.0.0.1:8000 app:app\nRestart=always\n\n[Install]\nWantedBy=multi-user.target\nEOF_SERVICE\nsudo systemctl daemon-reload\nsudo systemctl enable --now incident-app\nsudo tee /etc/nginx/sites-available/incident-app >/dev/null <<'EOF_NGINX'\nserver {\n    listen 80;\n    server_name _;\n\n    location / {\n        proxy_pass http://127.0.0.1:8000;\n        proxy_set_header Host $host;\n        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n        proxy_set_header X-Forwarded-Proto $scheme;\n    }\n}\nEOF_NGINX\nsudo ln -sfn /etc/nginx/sites-available/incident-app /etc/nginx/sites-enabled/default\nsudo nginx -t\nsudo systemctl restart nginx"
-    ]
-
-    connection {
-      type        = "ssh"
-      host        = self.public_ip
-      user        = "ubuntu"
-      private_key = file(var.private_key_path)
-    }
+  tag {
+    key                 = "Name"
+    value               = var.instance_name
+    propagate_at_launch = true
   }
 }

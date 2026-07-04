@@ -1,0 +1,34 @@
+#!/bin/bash
+set -e
+
+apt-get update
+apt-get install -y python3-pip python3-venv git
+
+cd /home/ubuntu
+rm -rf incident-management-app
+git clone ${repo_url} incident-management-app
+
+cd /home/ubuntu/incident-management-app
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt gunicorn
+
+cat > /etc/systemd/system/incident-app.service <<'EOF'
+[Unit]
+Description=Incident Management Flask App
+After=network.target
+
+[Service]
+User=ubuntu
+Group=www-data
+WorkingDirectory=/home/ubuntu/incident-management-app
+Environment="PATH=/home/ubuntu/incident-management-app/venv/bin"
+ExecStart=/home/ubuntu/incident-management-app/venv/bin/gunicorn --workers 2 --bind 0.0.0.0:8000 app:app
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now incident-app
