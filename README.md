@@ -206,6 +206,10 @@ You can also use the full URL from the `app_url` output.
 }
 ```
 
+- app_url                = "http://incident-management-app-alb-443524795.us-east-1.elb.amazonaws.com/" -> null
+  - load_balancer_dns_name = "incident-management-app-alb-443524795.us-east-1.elb.amazonaws.com" -> null
+
+
 ## 9. Notes and Limitations
 
 - Incidents are currently stored in memory and will be lost if the app restarts.
