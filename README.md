@@ -11,6 +11,8 @@ This project contains:
 - An in-memory incident store for demo/testing purposes
 - Terraform infrastructure to deploy the app on AWS
 - An Application Load Balancer and Auto Scaling Group for high availability and scalability
+- <img width="1900" height="952" alt="image" src="https://github.com/user-attachments/assets/a347b063-4cb0-4ac8-9057-d74d34e86eaa" />
+
 
 ## 2. Architecture
 
